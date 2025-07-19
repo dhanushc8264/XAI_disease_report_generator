@@ -3,19 +3,28 @@ from schemas import HeartRawInput
 import numpy as np
 import joblib
 from utils.explain_heart import create_explainer, get_top_contributors
-from utils.llm_utils import generate_heart_report  # ✅ Correct import
+from utils.llm_utils import generate_heart_report
 
 router = APIRouter()
 
-# Load model, scaler, features and SHAP explainer
-model = joblib.load("models/heart_model_xgb.pkl")
-scaler = joblib.load("models/heart_scaler.pkl")
-feature_names = joblib.load("models/feature_names.pkl")
-explainer = create_explainer(model)
+# Lazy-loaded global variables
+model = None
+scaler = None
+feature_names = None
+explainer = None
 
 @router.post("/predict-heart")
 def predict_heart(raw: HeartRawInput):
-    ...
+    global model, scaler, feature_names, explainer
+
+    # Lazy loading of model and helpers
+    if model is None:
+        print("🔄 Loading model, scaler, features, and explainer for the first time...")
+        model = joblib.load("models/heart_model_xgb.pkl")
+        scaler = joblib.load("models/heart_scaler.pkl")
+        feature_names = joblib.load("models/feature_names.pkl")
+        explainer = create_explainer(model)
+
     # ✅ Manual preprocessing and one-hot encoding
     print("📦 Raw received input:", raw.model_dump())
 
@@ -35,7 +44,7 @@ def predict_heart(raw: HeartRawInput):
     numeric = np.array([[raw.Age, raw.RestingBP, raw.Cholesterol, raw.MaxHR, raw.Oldpeak]])
     scaled = scaler.transform(numeric)[0]
 
-    features = np.array([[
+    features = np.array([[ 
         sex_f, sex_m,
         *cp_encoded,
         angina_n, angina_y,
@@ -43,20 +52,19 @@ def predict_heart(raw: HeartRawInput):
         raw.FastingBS,
         *scaled
     ]])
+
     print("🧪 Final model input vector:", features)
     print("🧬 Feature names:", feature_names)
-
     print("🧮 Final feature vector to model:", features.tolist())
     print("🧷 ST_Slope input:", raw.ST_Slope)
     print("🧾 One-hot encoded slope:", slope_encoded)
 
-
-    # ✅ Make prediction
+    # ✅ Prediction
     prediction = model.predict(features)[0]
     probability = model.predict_proba(features)[0][1]
     label = "Heart Disease" if prediction == 1 else "No Heart Disease"
 
-    # ✅ SHAP and Explanation
+    # ✅ SHAP explainability
     explanation = "No report generated for this prediction."
     top_features = []
 

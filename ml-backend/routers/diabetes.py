@@ -7,14 +7,25 @@ from utils.llm_utils import generate_diabetes_report  # Optional
 
 router = APIRouter()
 
-# Load model, scaler, and feature names
-model = joblib.load("models/xgboost_diabetes_model_a.pkl")
-scaler = joblib.load("models/diabetes_scaler.pkl")
-feature_names = joblib.load("models/diabetes_feature_names_a.pkl")  # must match model input order
-explainer = create_explainer(model)
+# Lazy-load global objects
+model = None
+scaler = None
+feature_names = None
+explainer = None
+
+def load_all():
+    global model, scaler, feature_names, explainer
+    if model is None:
+        model = joblib.load("models/xgboost_diabetes_model_a.pkl")
+        scaler = joblib.load("models/diabetes_scaler.pkl")
+        feature_names = joblib.load("models/diabetes_feature_names_a.pkl")
+        explainer = create_explainer(model)
 
 @router.post("/predict-diabetes")
 def predict(raw: DiabetesRawInput):
+    # 0) Ensure all models are loaded
+    load_all()
+
     # 1) Derive HighBP & HighChol
     high_bp = int(raw.systolic_bp >= 140 or raw.diastolic_bp >= 90)
     high_chol = int(raw.cholesterol_mg_dl > 200)
@@ -57,7 +68,7 @@ def predict(raw: DiabetesRawInput):
 
     # 6) Prediction and probability
     pred = model.predict(X)[0]
-    prob = model.predict_proba(X)[0][1]  # Probability of diabetes (class 1)
+    prob = model.predict_proba(X)[0][1]
     label = "Yes" if pred == 1 else "No"
     risk = "High Diabetes Risk" if pred == 1 else "Low Diabetes Risk"
 
@@ -68,10 +79,7 @@ def predict(raw: DiabetesRawInput):
         try:
             shap_vals = explainer.shap_values(X)[0]
             top_features = get_top_contributors(shap_vals, X, feature_names)
-
-            # Optional: detailed explanation
             explanation = generate_diabetes_report(top_features, prob, label)
-
         except Exception as e:
             print("SHAP failed:", e)
 
